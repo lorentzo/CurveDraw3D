@@ -54,7 +54,7 @@ def perturb_curve_points(curve_obj, perturb_scale=1.0, perturb_strength=1.0, n_o
             point.co = (new_point_co[0], new_point_co[1], new_point_co[2], point.co[3]) # Note: https://blender.stackexchange.com/questions/220812/what-is-the-4th-coordinate-of-spline-points
     return curve_obj
 
-def create_material(mat_id, mat_type, r, g, b):
+def create_material(mat_id, mat_type, color=mathutils.Color((1.0, 0.5, 0.1))):
 
     mat = bpy.data.materials.get(mat_id)
 
@@ -73,39 +73,68 @@ def create_material(mat_id, mat_type, r, g, b):
 
     if mat_type == "diffuse":
         shader = nodes.new(type='ShaderNodeBsdfDiffuse')
-        nodes["Diffuse BSDF"].inputs[0].default_value = (r, g, b, 1)
+        nodes["Diffuse BSDF"].inputs[0].default_value = color[:] + (1.0,)
 
     elif mat_type == "emission":
         shader = nodes.new(type='ShaderNodeEmission')
-        nodes["Emission"].inputs[0].default_value = (r, g, b, 1)
+        nodes["Emission"].inputs[0].default_value = color[:] + (1.0,)
         nodes["Emission"].inputs[1].default_value = 1
 
     elif mat_type == "glossy":
         shader = nodes.new(type='ShaderNodeBsdfGlossy')
-        nodes["Glossy BSDF"].inputs[0].default_value = (r, g, b, 1)
+        nodes["Glossy BSDF"].inputs[0].default_value = color[:] + (1.0,)
         nodes["Glossy BSDF"].inputs[1].default_value = 0
 
     links.new(shader.outputs[0], output.inputs[0])
 
     return mat
 
+# Based on: https://blog.federicopepe.com/en/2020/05/create-random-palettes-of-colors-that-will-go-well-together/
+def generate_5_random_colors_that_fit():
+    hue = int(mathutils.noise.random() * 360.0) # Random between [0,360]
+    hue_op = int(mathutils.noise.random() * 180.0) # Random between [0,180]
+    hues = [
+        hue,
+        hue - hue_op,
+        hue + hue_op,
+        hue - 2 * hue_op,
+        hue + 2 * hue_op]
+    rand_cols = []
+    for i in range (5):
+        col = mathutils.Color()
+        col.hsv = (hues[i]/360.0, mathutils.noise.random(), mathutils.noise.random())
+        rand_cols.append(col)
+    return rand_cols
+
+def generate_n_gradient_colors_with_same_hue(n=10):
+    hue = mathutils.noise.random()
+    rand_cols = []
+    for i in range(n):
+        col = mathutils.Color()
+        col.hsv = (hue, mathutils.noise.random(), mathutils.noise.random())
+        rand_cols.append(col)
+    return rand_cols
+
 def main():
     curve_drawing_collection_name = "curve_drawing_collection" 
-    n_instances_per_drawing = 10
+    n_instances_per_drawing = 20
     instances_per_drawings = []
     for curve_drawing in bpy.data.collections[curve_drawing_collection_name].all_objects:
         instances_per_drawing = []
         perturb_curve_points(curve_drawing, perturb_scale=0.3, perturb_strength=0.5, n_octaves=1, amplitude_scale=0.3, frequency_scale=0.5)
-        curve_drawing.data.bevel_depth = mathutils.noise.random() * 0.05
+        #curve_drawing.data.bevel_depth = mathutils.noise.random() * 0.05
+        rand_colors = generate_5_random_colors_that_fit()
+        rand_colors = generate_n_gradient_colors_with_same_hue(10)
         for i_instance_per_drawing in range(n_instances_per_drawing):
             drawing_instance = copy_obj(curve_drawing, "curve_drawing_instances")
             drawing_instance.location += mathutils.Vector((mathutils.noise.random()-0.5, mathutils.noise.random()-0.5, mathutils.noise.random()-0.5))
-            perturb_curve_points(drawing_instance, perturb_scale=0.3, perturb_strength=0.5, n_octaves=1, amplitude_scale=0.3, frequency_scale=0.5)
+            perturb_curve_points(drawing_instance, perturb_scale=0.3, perturb_strength=0.5, n_octaves=1, amplitude_scale=0.3, frequency_scale=1.5)
             drawing_instance.data.bevel_depth = mathutils.noise.random() * 0.05
-            if mathutils.noise.random() > 0.9:
-                mat = create_material(drawing_instance.name+"_mat", "emission", 0.9, 0.7, 1)
+            if mathutils.noise.random() > 0.8:
+                mat = create_material(drawing_instance.name+"_mat", "emission", mathutils.Color((1.0, 1.0, 1.0)))
             else:
-                mat = create_material(drawing_instance.name+"_mat", "diffuse", 0.8, 0.4, 1)
+                rand_col_idx = int(mathutils.noise.random() * len(rand_colors))
+                mat = create_material(drawing_instance.name+"_mat", "diffuse", rand_colors[rand_col_idx])
             drawing_instance.data.materials.append(mat)
             instances_per_drawing.append(drawing_instance)
         instances_per_drawings.append(instances_per_drawing)
