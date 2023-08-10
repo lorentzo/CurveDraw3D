@@ -4,9 +4,17 @@
 
 # Blender: 3.6.1.
 
+# TODO:
+# 1. Animate light blinking
+# 2. Animate curve bevel shape
+
 import bpy
 import mathutils
 import bmesh
+
+# Interpolate [a,b] using factor t.
+def lerp(t, a, b):
+    return (1.0 - t) * a + t * b
 
 def create_collection_if_not_exists(collection_name):
     if collection_name not in bpy.data.collections:
@@ -89,6 +97,26 @@ def create_material(mat_id, mat_type, color=mathutils.Color((1.0, 0.5, 0.1))):
 
     return mat
 
+def animate_curve_growth(curve, frame_start, frame_end, growth_factor_end, start_growth):
+    curve.data.bevel_factor_end = start_growth
+    curve.data.bevel_factor_start = 0
+    curve.data.keyframe_insert(data_path="bevel_factor_end", frame=frame_start)
+    curve.data.keyframe_insert(data_path="bevel_factor_end", frame=frame_start)
+    curve.data.bevel_factor_end = growth_factor_end
+    curve.data.keyframe_insert(data_path="bevel_factor_end", frame=frame_end)
+
+# https://behreajj.medium.com/scripting-curves-in-blender-with-python-c487097efd13
+def set_animation_fcurve(base_object, option='LINEAR'):
+    fcurves = base_object.data.animation_data.action.fcurves
+    for fcurve in fcurves:
+        for kf in fcurve.keyframe_points:
+            # Options: ['CONSTANT', 'LINEAR', 'BEZIER', 'SINE',
+            # 'QUAD', 'CUBIC', 'QUART', 'QUINT', 'EXPO', 'CIRC',
+            # 'BACK', 'BOUNCE', 'ELASTIC']
+            kf.interpolation = option
+            # Options: ['AUTO', 'EASE_IN', 'EASE_OUT', 'EASE_IN_OUT']
+            kf.easing = 'AUTO'
+
 # Based on: https://blog.federicopepe.com/en/2020/05/create-random-palettes-of-colors-that-will-go-well-together/
 def generate_5_random_colors_that_fit():
     hue = int(mathutils.noise.random() * 360.0) # Random between [0,360]
@@ -117,28 +145,35 @@ def generate_n_gradient_colors_with_same_hue(n=10):
 
 def main():
     curve_drawing_collection_name = "curve_drawing_collection" 
-    n_instances_per_drawing = 20
+    n_instances_per_drawing = 50
     instances_per_drawings = []
     for curve_drawing in bpy.data.collections[curve_drawing_collection_name].all_objects:
         instances_per_drawing = []
-        perturb_curve_points(curve_drawing, perturb_scale=0.3, perturb_strength=0.5, n_octaves=1, amplitude_scale=0.3, frequency_scale=0.5)
-        #curve_drawing.data.bevel_depth = mathutils.noise.random() * 0.05
         rand_colors = generate_5_random_colors_that_fit()
         rand_colors = generate_n_gradient_colors_with_same_hue(10)
         for i_instance_per_drawing in range(n_instances_per_drawing):
+            # Create copy with randomized transformation.
             drawing_instance = copy_obj(curve_drawing, "curve_drawing_instances")
-            drawing_instance.location += mathutils.Vector((mathutils.noise.random()-0.5, mathutils.noise.random()-0.5, mathutils.noise.random()-0.5))
+            drawing_instance.location += mathutils.Vector((mathutils.noise.random()-0.5, mathutils.noise.random()-0.5, mathutils.noise.random()-0.5)) * 2.0
+            # Preturb curve points.
             perturb_curve_points(drawing_instance, perturb_scale=0.3, perturb_strength=0.5, n_octaves=1, amplitude_scale=0.3, frequency_scale=1.5)
+            # Set bevel depth.
             drawing_instance.data.bevel_depth = mathutils.noise.random() * 0.05
+            # Add material.
             if mathutils.noise.random() > 0.8:
-                mat = create_material(drawing_instance.name+"_mat", "emission", mathutils.Color((1.0, 1.0, 1.0)))
+                emission_intensity = 10.0
+                mat = create_material(drawing_instance.name+"_mat", "emission", mathutils.Color((emission_intensity, emission_intensity, emission_intensity)))
             else:
                 rand_col_idx = int(mathutils.noise.random() * len(rand_colors))
                 mat = create_material(drawing_instance.name+"_mat", "diffuse", rand_colors[rand_col_idx])
             drawing_instance.data.materials.append(mat)
+            # Animate.
+            end_mapping_animation = lerp(mathutils.noise.random(), 0.1, 1.0)
+            animate_curve_growth(drawing_instance, frame_start=0, frame_end=200, growth_factor_end=end_mapping_animation, start_growth=0)
+            set_animation_fcurve(drawing_instance, option="LINEAR")
+            # Store instance.
             instances_per_drawing.append(drawing_instance)
         instances_per_drawings.append(instances_per_drawing)
-
 
 #
 # Script entry point.
