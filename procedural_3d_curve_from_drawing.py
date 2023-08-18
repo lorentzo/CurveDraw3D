@@ -6,10 +6,13 @@
 
 # TODO:
 # 1. Animate slow growth
-# 2. randomized growth speed/start/end
 # 1. Animate light blinking once growth is finished
 # 2. Spawn spheres in BB flying around like brownian movement
-# 2. More thicker bevel? Special shape? Animation? 
+#     + enhance movement, material, size, shape
+#     + collisions, change color when collide, stick when collide mmmmmmmm 0.0
+#     + https://www.youtube.com/watch?v=rIhXHSdMWmc&ab_channel=CGPython
+#     + metaball CSG? https://www.youtube.com/watch?v=syvhbxPE3zI&t=1s&ab_channel=JoshGambrell
+# 2. More thicker bevel? Special shape? Animation? Idea: https://www.youtube.com/watch?v=CSre9wCJoWc&ab_channel=AlbertoCordero
 # 3. randomize emission
 # 4. randomize curve shapes
 # 5. smoothen curves
@@ -151,16 +154,60 @@ def generate_n_gradient_colors_with_same_random_hue(n=10):
         rand_cols.append(col)
     return rand_cols
 
-def spawn_spheres_in_bb(obj, n_spheres):
-    pass
+def spawn_and_animate_spheres_in_bb(obj, n_spheres):
+    # Find BB corners in world space.
+    bb = obj.bound_box
+    bb_vecs = []
+    world_translation = obj.matrix_basis.to_translation()
+    world_rotation = obj.matrix_basis.to_euler()
+    for bb_i in bb:
+        bb_vec = mathutils.Vector((bb_i[0], bb_i[1], bb_i[2])) # BB in local space.
+        bb_vec += world_translation
+        bb_vec.rotate(world_rotation)
+        bb_vecs.append(bb_vec)
+        #bpy.ops.mesh.primitive_ico_sphere_add(radius=1, enter_editmode=False, align='WORLD', location=bb_i, scale=(1, 1, 1))
+        #bpy.context.selected_objects[0].name = str(bb_vec[0]) + "_" + str(bb_vec[1]) + "_" + str(bb_vec[2])
+    #bpy.ops.mesh.primitive_cube_add(size=2, enter_editmode=False, align='WORLD', location=bb_vecs[0], scale=(1, 1, 1))
+    #bpy.ops.mesh.primitive_cube_add(size=2, enter_editmode=False, align='WORLD', location=bb_vecs[-2], scale=(1, 1, 1))
+    # Spawn spheres.
+    mballs = []
+    rand_colors = generate_5_random_colors_that_fit()
+    for i in range(n_spheres):
+        loc_x = lerp(mathutils.noise.random(), bb_vecs[0].x, bb_vecs[-2].x)
+        loc_y = lerp(mathutils.noise.random(), bb_vecs[0].y, bb_vecs[-2].y)
+        loc_z = lerp(mathutils.noise.random(), bb_vecs[0].z, bb_vecs[-2].z)
+        radius = mathutils.noise.random() * 4 + 1
+        bpy.ops.object.metaball_add(type='BALL', radius=radius, enter_editmode=False, align='WORLD', location=mathutils.Vector((loc_x, loc_y, loc_z)), scale=(1, 1, 1))
+        mball = bpy.context.selected_objects[0]
+        mballs.append(mball)
+        mball.keyframe_insert("location", frame=0)
+        # Add material.
+        if mathutils.noise.random() > 0.8:
+            emission_intensity = 10.0
+            mat = create_material(mball.name+"_mat", "emission", mathutils.Color((emission_intensity, emission_intensity, emission_intensity)))
+        else:
+            rand_col_idx = int(mathutils.noise.random() * len(rand_colors))
+            mat = create_material(mball.name+"_mat", "diffuse", rand_colors[rand_col_idx])
+        #mball.data.materials.append(mat)
+    # Animate.
+    keyframe_delta = 10
+    curr_frame = 10
+    for i in range(30):
+        for mball in mballs:
+            mball.location += mathutils.noise.noise_vector(mball.location) * 5.0
+            mball.keyframe_insert("location", frame=curr_frame)
+        curr_frame += keyframe_delta
 
-
+    
 
 def main():
     curve_drawing_collection_name = "curve_drawing_collection" 
     n_instances_per_drawing = 50
     array_of_instance_arrays = []
     for curve_drawing in bpy.data.collections[curve_drawing_collection_name].all_objects:
+
+        spawn_and_animate_spheres_in_bb(curve_drawing, 30)
+
         instance_array = []
         #rand_colors = generate_5_random_colors_that_fit()
         rand_colors = generate_n_gradient_colors_with_same_random_hue(n_instances_per_drawing)
