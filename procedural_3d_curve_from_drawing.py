@@ -5,8 +5,16 @@
 # Blender: 3.6.1.
 
 # TODO:
-# 1. Animate light blinking
-# 2. Animate curve bevel shape
+# 1. Animate slow growth
+# 2. randomized growth speed/start/end
+# 1. Animate light blinking once growth is finished
+# 2. Spawn spheres in BB flying around like brownian movement
+# 2. More thicker bevel? Special shape? Animation? 
+# 3. randomize emission
+# 4. randomize curve shapes
+# 5. smoothen curves
+# 5. model intersting 3d scene
+# 5. camera DOF, changing sharpness
 
 import bpy
 import mathutils
@@ -106,7 +114,7 @@ def animate_curve_growth(curve, frame_start, frame_end, growth_factor_end, start
     curve.data.keyframe_insert(data_path="bevel_factor_end", frame=frame_end)
 
 # https://behreajj.medium.com/scripting-curves-in-blender-with-python-c487097efd13
-def set_animation_fcurve(base_object, option='LINEAR'):
+def set_animation_fcurve(base_object, option='BOUNCE'):
     fcurves = base_object.data.animation_data.action.fcurves
     for fcurve in fcurves:
         for kf in fcurve.keyframe_points:
@@ -115,7 +123,7 @@ def set_animation_fcurve(base_object, option='LINEAR'):
             # 'BACK', 'BOUNCE', 'ELASTIC']
             kf.interpolation = option
             # Options: ['AUTO', 'EASE_IN', 'EASE_OUT', 'EASE_IN_OUT']
-            kf.easing = 'AUTO'
+            kf.easing = 'EASE_OUT'
 
 # Based on: https://blog.federicopepe.com/en/2020/05/create-random-palettes-of-colors-that-will-go-well-together/
 def generate_5_random_colors_that_fit():
@@ -134,7 +142,7 @@ def generate_5_random_colors_that_fit():
         rand_cols.append(col)
     return rand_cols
 
-def generate_n_gradient_colors_with_same_hue(n=10):
+def generate_n_gradient_colors_with_same_random_hue(n=10):
     hue = mathutils.noise.random()
     rand_cols = []
     for i in range(n):
@@ -143,22 +151,29 @@ def generate_n_gradient_colors_with_same_hue(n=10):
         rand_cols.append(col)
     return rand_cols
 
+def spawn_spheres_in_bb(obj, n_spheres):
+    pass
+
+
+
 def main():
     curve_drawing_collection_name = "curve_drawing_collection" 
     n_instances_per_drawing = 50
-    instances_per_drawings = []
+    array_of_instance_arrays = []
     for curve_drawing in bpy.data.collections[curve_drawing_collection_name].all_objects:
-        instances_per_drawing = []
-        rand_colors = generate_5_random_colors_that_fit()
-        rand_colors = generate_n_gradient_colors_with_same_hue(10)
+        instance_array = []
+        #rand_colors = generate_5_random_colors_that_fit()
+        rand_colors = generate_n_gradient_colors_with_same_random_hue(n_instances_per_drawing)
         for i_instance_per_drawing in range(n_instances_per_drawing):
-            # Create copy with randomized transformation.
-            drawing_instance = copy_obj(curve_drawing, "curve_drawing_instances")
-            drawing_instance.location += mathutils.Vector((mathutils.noise.random()-0.5, mathutils.noise.random()-0.5, mathutils.noise.random()-0.5)) * 2.0
+            # Create copy.
+            drawing_instance = copy_obj(curve_drawing, "curve_drawing_instance")
+            # Randomize translation of whole curve.
+            translation_rand_strength = 5.0
+            drawing_instance.location += mathutils.Vector((mathutils.noise.random()-0.5, mathutils.noise.random()-0.5, mathutils.noise.random()-0.5)) * translation_rand_strength
             # Preturb curve points.
             perturb_curve_points(drawing_instance, perturb_scale=0.3, perturb_strength=0.5, n_octaves=1, amplitude_scale=0.3, frequency_scale=1.5)
             # Set bevel depth.
-            drawing_instance.data.bevel_depth = mathutils.noise.random() * 0.05
+            drawing_instance.data.bevel_depth = mathutils.noise.random() * 0.7
             # Add material.
             if mathutils.noise.random() > 0.8:
                 emission_intensity = 10.0
@@ -169,11 +184,12 @@ def main():
             drawing_instance.data.materials.append(mat)
             # Animate.
             end_mapping_animation = lerp(mathutils.noise.random(), 0.1, 1.0)
-            animate_curve_growth(drawing_instance, frame_start=0, frame_end=200, growth_factor_end=end_mapping_animation, start_growth=0)
-            set_animation_fcurve(drawing_instance, option="LINEAR")
+            start_mapping_animation = lerp(mathutils.noise.random(), 0.01, 0.1)
+            animate_curve_growth(drawing_instance, frame_start=0, frame_end=200, growth_factor_end=end_mapping_animation, start_growth=start_mapping_animation)
+            set_animation_fcurve(drawing_instance, option="CUBIC")
             # Store instance.
-            instances_per_drawing.append(drawing_instance)
-        instances_per_drawings.append(instances_per_drawing)
+            instance_array.append(drawing_instance)
+        array_of_instance_arrays.append(instance_array)
 
 #
 # Script entry point.
