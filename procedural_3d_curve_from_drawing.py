@@ -5,23 +5,24 @@
 # Blender: 3.6.1.
 
 # TODO:
-# 1. Animate slow growth
-# 1. Animate light blinking once growth is finished
+
+
 # 2. Spawn spheres in BB flying around like brownian movement
 #     + enhance movement, material, size, shape
 #     + collisions, change color when collide, stick when collide mmmmmmmm 0.0
 #     + https://www.youtube.com/watch?v=rIhXHSdMWmc&ab_channel=CGPython
 #     + metaball CSG? https://www.youtube.com/watch?v=syvhbxPE3zI&t=1s&ab_channel=JoshGambrell
 # 2. More thicker bevel? Special shape? Animation? Idea: https://www.youtube.com/watch?v=CSre9wCJoWc&ab_channel=AlbertoCordero
-# 3. randomize emission
-# 4. randomize curve shapes
-# 5. smoothen curves
-# 5. model intersting 3d scene
-# 5. camera DOF, changing sharpness
+# 6. Scenes:
+#     + Emissive mballs flowing around splines - cycles
+#     + Blinking splines in dark env (designer canvas in the back) - cycles
+#     + Emissive blur env, splines grow in mballs flow field - EEVEE multiple camera view - camera DOF, changing sharpness
+#     + close loop growth - EEVEE
 
 import bpy
 import mathutils
 import bmesh
+import numpy as np
 
 # Interpolate [a,b] using factor t.
 def lerp(t, a, b):
@@ -116,6 +117,12 @@ def animate_curve_growth(curve, frame_start, frame_end, growth_factor_end, start
     curve.data.bevel_factor_end = growth_factor_end
     curve.data.keyframe_insert(data_path="bevel_factor_end", frame=frame_end)
 
+def animate_curve_thickness(curve, frame_start, frame_end, thickness_min, thickness_max, start_thickness=0.0):
+    curve.data.bevel_depth = start_thickness
+    curve.data.keyframe_insert(data_path="bevel_depth", frame=frame_start)
+    curve.data.bevel_depth = lerp(mathutils.noise.random(), thickness_min, thickness_max)
+    curve.data.keyframe_insert(data_path="bevel_depth", frame=frame_end)
+
 # https://behreajj.medium.com/scripting-curves-in-blender-with-python-c487097efd13
 def set_animation_fcurve(base_object, option='BOUNCE'):
     fcurves = base_object.data.animation_data.action.fcurves
@@ -145,16 +152,15 @@ def generate_5_random_colors_that_fit():
         rand_cols.append(col)
     return rand_cols
 
-def generate_n_gradient_colors_with_same_random_hue(n=10):
-    hue = mathutils.noise.random()
+def generate_n_gradient_colors_with_same_random_hue(n=10, input_hue=mathutils.noise.random()):
     rand_cols = []
     for i in range(n):
         col = mathutils.Color()
-        col.hsv = (hue, mathutils.noise.random(), mathutils.noise.random())
+        col.hsv = (input_hue, mathutils.noise.random(), mathutils.noise.random())
         rand_cols.append(col)
     return rand_cols
 
-def spawn_and_animate_spheres_in_bb(obj, n_spheres):
+def spawn_and_animate_spheres_in_bb(obj, n_spheres, r_min=1, r_max=3, mat_type="diffuse", diff_col=mathutils.Color((1,1,1)), emission_intensity=10, movement_intensity=5.0, n_frames=100):
     # Find BB corners in world space.
     bb = obj.bound_box
     bb_vecs = []
@@ -171,72 +177,104 @@ def spawn_and_animate_spheres_in_bb(obj, n_spheres):
     #bpy.ops.mesh.primitive_cube_add(size=2, enter_editmode=False, align='WORLD', location=bb_vecs[-2], scale=(1, 1, 1))
     # Spawn spheres.
     mballs = []
-    rand_colors = generate_5_random_colors_that_fit()
     for i in range(n_spheres):
         loc_x = lerp(mathutils.noise.random(), bb_vecs[0].x, bb_vecs[-2].x)
         loc_y = lerp(mathutils.noise.random(), bb_vecs[0].y, bb_vecs[-2].y)
         loc_z = lerp(mathutils.noise.random(), bb_vecs[0].z, bb_vecs[-2].z)
-        radius = mathutils.noise.random() * 4 + 1
+        radius = lerp(mathutils.noise.random(), r_min, r_max)
         bpy.ops.object.metaball_add(type='BALL', radius=radius, enter_editmode=False, align='WORLD', location=mathutils.Vector((loc_x, loc_y, loc_z)), scale=(1, 1, 1))
         mball = bpy.context.selected_objects[0]
         mballs.append(mball)
         mball.keyframe_insert("location", frame=0)
         # Add material.
-        if mathutils.noise.random() > 0.8:
-            emission_intensity = 10.0
+        if mat_type == "emission":
             mat = create_material(mball.name+"_mat", "emission", mathutils.Color((emission_intensity, emission_intensity, emission_intensity)))
         else:
-            rand_col_idx = int(mathutils.noise.random() * len(rand_colors))
-            mat = create_material(mball.name+"_mat", "diffuse", rand_colors[rand_col_idx])
-        #mball.data.materials.append(mat)
+            mat = create_material(mball.name+"_mat", "diffuse", diff_col)
+        mball.data.materials.append(mat)
     # Animate.
     keyframe_delta = 10
     curr_frame = 10
-    for i in range(30):
+    while curr_frame <= n_frames:
         for mball in mballs:
-            mball.location += mathutils.noise.noise_vector(mball.location) * 5.0
+            mball.location += mathutils.noise.noise_vector(mball.location) * movement_intensity
             mball.keyframe_insert("location", frame=curr_frame)
         curr_frame += keyframe_delta
 
     
 
 def main():
-    curve_drawing_collection_name = "curve_drawing_collection" 
+
+    # Parameters.
+    curve_drawing_collection_name = "curve_drawing_collection"
+    n_frames = 300
+
+    # Sphere parameters.
+    n_spheres = 20
+    r_min = 2
+    r_max = 4
+    mat_type = "diffuse"
+    diff_col = mathutils.Color((1,1,1))
+    emission_intensity = 10.0
+    movement_intensity = 10.0
+
+    # Curve parameters
     n_instances_per_drawing = 50
+    translation_rand_strength = 10.0
+    bevel_thickening_period = 10
+    chance_of_emissive_curves = 0.1
+    
+
     array_of_instance_arrays = []
+    rand_5_colors = generate_5_random_colors_that_fit()
+    curr_draw_curve_idx = 0
     for curve_drawing in bpy.data.collections[curve_drawing_collection_name].all_objects:
 
-        spawn_and_animate_spheres_in_bb(curve_drawing, 30)
+        # Create mballs in BB of current draw curve input. 
+        spawn_and_animate_spheres_in_bb(curve_drawing, n_spheres=n_spheres, r_min=r_min, r_max=r_max, mat_type="diffuse", diff_col=diff_col, emission_intensity=emission_intensity, movement_intensity=movement_intensity, n_frames=n_frames)
+
+        # Generate random color for current draw curve input.
+        hue = rand_5_colors[curr_draw_curve_idx % 5].h
+        rand_colors = generate_n_gradient_colors_with_same_random_hue(n_instances_per_drawing, hue)
 
         instance_array = []
-        #rand_colors = generate_5_random_colors_that_fit()
-        rand_colors = generate_n_gradient_colors_with_same_random_hue(n_instances_per_drawing)
         for i_instance_per_drawing in range(n_instances_per_drawing):
             # Create copy.
             drawing_instance = copy_obj(curve_drawing, "curve_drawing_instance")
             # Randomize translation of whole curve.
-            translation_rand_strength = 5.0
             drawing_instance.location += mathutils.Vector((mathutils.noise.random()-0.5, mathutils.noise.random()-0.5, mathutils.noise.random()-0.5)) * translation_rand_strength
             # Preturb curve points.
-            perturb_curve_points(drawing_instance, perturb_scale=0.3, perturb_strength=0.5, n_octaves=1, amplitude_scale=0.3, frequency_scale=1.5)
-            # Set bevel depth.
-            drawing_instance.data.bevel_depth = mathutils.noise.random() * 0.7
+            perturb_curve_points(drawing_instance, perturb_scale=1, perturb_strength=1, n_octaves=2, amplitude_scale=1, frequency_scale=2)
             # Add material.
-            if mathutils.noise.random() > 0.8:
+            if mathutils.noise.random() < chance_of_emissive_curves:
                 emission_intensity = 10.0
                 mat = create_material(drawing_instance.name+"_mat", "emission", mathutils.Color((emission_intensity, emission_intensity, emission_intensity)))
             else:
                 rand_col_idx = int(mathutils.noise.random() * len(rand_colors))
                 mat = create_material(drawing_instance.name+"_mat", "diffuse", rand_colors[rand_col_idx])
             drawing_instance.data.materials.append(mat)
-            # Animate.
-            end_mapping_animation = lerp(mathutils.noise.random(), 0.1, 1.0)
+            # Animate growth.
+            end_mapping_animation = lerp(mathutils.noise.random(), 0.7, 1.0)
             start_mapping_animation = lerp(mathutils.noise.random(), 0.01, 0.1)
-            animate_curve_growth(drawing_instance, frame_start=0, frame_end=200, growth_factor_end=end_mapping_animation, start_growth=start_mapping_animation)
+            animate_curve_growth(drawing_instance, frame_start=0, frame_end=n_frames, growth_factor_end=end_mapping_animation, start_growth=start_mapping_animation)
             set_animation_fcurve(drawing_instance, option="CUBIC")
+            # Animate thickening.
+            # Set bevel certain bevel depth.
+            drawing_instance.data.bevel_depth = mathutils.noise.random() * 0.7 + 0.1
+            drawing_instance.data.keyframe_insert(data_path="bevel_depth", frame=0)
+            # Animate growing and shrinking.
+            curr_frame_bevel = 30
+            delta_frame_bevel = int(n_frames / bevel_thickening_period)
+            for i in range(bevel_thickening_period):
+                thickness_min = drawing_instance.data.bevel_depth * 0.8
+                thickness_max = drawing_instance.data.bevel_depth * 1.2
+                animate_curve_thickness(drawing_instance, frame_start=curr_frame_bevel, frame_end=curr_frame_bevel+delta_frame_bevel, thickness_min=thickness_min, thickness_max=thickness_max, start_thickness=drawing_instance.data.bevel_depth)
+                curr_frame_bevel += delta_frame_bevel
             # Store instance.
             instance_array.append(drawing_instance)
         array_of_instance_arrays.append(instance_array)
+
+        curr_draw_curve_idx += 1
 
 #
 # Script entry point.
